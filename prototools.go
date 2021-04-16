@@ -3,7 +3,6 @@
 package prototools
 
 import (
-	"log"
 	"errors"
 	"fmt"
 	"strings"
@@ -31,7 +30,7 @@ func JSONName(protoName string) string {
 	for i, word := range sp {
 		if i == 0 {
 			sp[i] = strings.ToLower(word)
-		}else{
+		} else {
 			sp[i] = strings.Title(strings.ToLower(word))
 		}
 	}
@@ -72,7 +71,6 @@ func FieldAsStr(msg proto.Message, field string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
 
 	if k == protoreflect.EnumKind {
 		ref := msg.ProtoReflect()

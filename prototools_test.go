@@ -23,23 +23,23 @@ func TestProtoName(t *testing.T) {
 	want := "this_is_my_field_name32"
 	got := ProtoName(jsonName)
 	if got != want {
-		t.Errorf("TestProtoName(%s): got %q, want %q",  jsonName, got, want)
+		t.Errorf("TestProtoName(%s): got %q, want %q", jsonName, got, want)
 	}
 }
 
 func TestFieldAsStr(t *testing.T) {
 	data := &pb.Supported{
-		Vint32: 32,
-		Vint64: 64,
+		Vint32:  32,
+		Vint64:  64,
 		Vstring: "string",
-		Vbool: true,
-		Ev: pb.EnumValues_EV_Ok,
+		Vbool:   true,
+		Ev:      pb.EnumValues_EV_Ok,
 	}
 
-	tests := []struct{
-		desc string
+	tests := []struct {
+		desc  string
 		field string
-		want string
+		want  string
 	}{
 		{"int32", "vint32", "32"},
 		{"int64", "vint64", "64"},
@@ -61,13 +61,13 @@ func TestFieldAsStr(t *testing.T) {
 }
 
 func TestUpdateProtoField(t *testing.T) {
-	tests := []struct{
-		desc string
-		start *pb.Supported
-		want *pb.Supported
+	tests := []struct {
+		desc      string
+		start     *pb.Supported
+		want      *pb.Supported
 		fieldName string
-		value interface{}
-		err bool
+		value     interface{}
+		err       bool
 	}{
 		{
 			desc:      "int32",
