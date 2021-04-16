@@ -1,0 +1,11 @@
+version: v1beta1
+name: buf.build/johnsiilver/proto
+build:
+  roots:
+    - .
+lint:
+  use:
+    - DEFAULT
+breaking:
+  use:
+    - FILE

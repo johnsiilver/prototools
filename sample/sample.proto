@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package r3;
+
+option go_package = "github.com/johnsiilver/prototools/sample";
+
+enum EnumValues{
+    EV_Unknown = 0;
+    EV_Ok= 1;
+    EV_Not_Ok = 2;
+    EV_Eh = 3;
+}
+
+message Supported {
+	EnumValues ev = 1;
+	string vstring = 2;
+	int32 vint32 = 3;
+	int64 vint64 = 4;
+	bool vbool = 5;
+}
