@@ -61,7 +61,7 @@ func ReadableJSON(s string) string {
 	if len(words) == 0 {
 		return s
 	}
-	for i, word := range words{
+	for i, word := range words {
 		words[i] = strings.Title(word)
 	}
 
