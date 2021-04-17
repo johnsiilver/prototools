@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	ErrFieldNameExist = errors.New("the field with that name does not exist")
+	ErrBadFieldName = errors.New("the field with that name does not exist")
 )
 
 // JSONName converts the proto name of a field to the JSON equivalent.
@@ -126,7 +126,7 @@ func FieldValue(msg proto.Message, field string) (interface{}, protoreflect.Kind
 	descriptors := ref.Descriptor().Fields()
 	fd := descriptors.ByName(protoreflect.Name(field))
 	if fd == nil {
-		return nil, 0, fmt.Errorf("could not get field named %q: %w", field, ErrFieldNameExist)
+		return nil, 0, fmt.Errorf("could not get field named %q: %w", field, ErrBadFieldName)
 	}
 
 	return ref.Get(fd).Interface(), fd.Kind(), nil
