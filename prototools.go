@@ -42,7 +42,7 @@ func JSONName(protoName string) string {
 // We assume best practices of name = [lower]_[seperated]_[with]_[underscores].
 // This is really an alias of strings.Title(jsonName).
 func ProtoName(jsonName string) string {
-	sp := split(jsonName)
+	sp := split(jsonName, false)
 	for i, word := range sp {
 		sp[i] = strings.ToLower(word)
 	}
@@ -50,18 +50,35 @@ func ProtoName(jsonName string) string {
 	return strings.Join(sp, "_")
 }
 
-// Readable splits the JSON name at capital letters and titles each work.
+// ReadableJSON splits the JSON field name at capital letters and titles each word.
 // This assumes ASCII names and that "s" is a JSON name for a field.
 func ReadableJSON(s string) string {
 	if len(s) == 0 {
 		return s
 	}
 
-	words := split(s)
+	words := split(s, true)
 	if len(words) == 0 {
 		return s
 	}
-	words[0] = strings.Title(words[0])
+	for i, word := range words{
+		words[i] = strings.Title(word)
+	}
+
+	return strings.Join(words, " ")
+}
+
+// ReadableProto slits the proto field name at "_" and titles each word.
+// This assumes ASCII names and following [lower]_[seperated]_[with]_[underscores] .
+func ReadableProto(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+
+	words := strings.Split(s, "_")
+	for i, word := range words {
+		words[i] = strings.Title(word)
+	}
 	return strings.Join(words, " ")
 }
 
@@ -173,7 +190,9 @@ func UpdateProtoField(m proto.Message, fieldName string, value interface{}) erro
 	return nil
 }
 
-func split(src string) (entries []string) {
+// this code is borrowed and modified faith code.
+// TODO(johnsiilver): Add attribution.
+func split(src string, splitNum bool) (entries []string) {
 	// don't split invalid utf8
 	if !utf8.ValidString(src) {
 		return []string{src}
@@ -191,6 +210,9 @@ func split(src string) (entries []string) {
 			class = 2
 		case unicode.IsDigit(r):
 			class = 1
+			if splitNum {
+				class = 3
+			}
 		default:
 			class = 4
 		}

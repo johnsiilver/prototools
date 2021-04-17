@@ -27,6 +27,24 @@ func TestProtoName(t *testing.T) {
 	}
 }
 
+func TestReadableJSON(t *testing.T) {
+	name := "thisIsMyFieldName32"
+	want := "This Is My Field Name 32"
+	got := ReadableJSON(name)
+	if got != want {
+		t.Errorf("TestReadableJSON(%s): got %q, want %q", name, got, want)
+	}
+}
+
+func TestReadbleProto(t *testing.T) {
+	name := "this_is_my_field_name_32"
+	want := "This Is My Field Name 32"
+	got := ReadableProto(name)
+	if got != want {
+		t.Errorf("TestReadableProto(%s): got %q, want %q", name, got, want)
+	}
+}
+
 func TestFieldAsStr(t *testing.T) {
 	data := &pb.Supported{
 		Vint32:  32,
