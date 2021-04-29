@@ -9,8 +9,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/testing/protocmp"
 )
 
 var (
@@ -121,6 +123,8 @@ The following is the kind to Go type mapping:
 	╚════════════╧═════════════════════════════════════╝
 
 */
+
+// FieldValue gets a field from msg.
 func FieldValue(msg proto.Message, field string) (interface{}, protoreflect.Kind, error) {
 	ref := msg.ProtoReflect()
 	descriptors := ref.Descriptor().Fields()
@@ -129,7 +133,37 @@ func FieldValue(msg proto.Message, field string) (interface{}, protoreflect.Kind
 		return nil, 0, fmt.Errorf("could not get field named %q: %w", field, ErrBadFieldName)
 	}
 
+	if fd.Kind() == protoreflect.MessageKind {
+		return ref.Get(fd).Message().Interface(), fd.Kind(), nil
+	}
+
 	return ref.Get(fd).Interface(), fd.Kind(), nil
+}
+
+func fqPathSplit(fqpath string) []string {
+	return strings.Split(fqpath, ".")
+}
+
+// GetField searches into a proto to get a field value. It returns the value as an interface{}, the kind of the field
+// and if the field was found. You use a "." notation to dive into the proto (field.field.field , where everything but the last must be a Message type). We use the proto file spelling, not JSON or local language of the fields. You cannot look into groups (repeated values/array/slice...).
+func GetField(msg proto.Message, fqPath string) (value interface{}, kind protoreflect.Kind, err error) {
+	fields := fqPathSplit(fqPath)
+	for x, field := range fields[0 : len(fields)-1] {
+		var value interface{}
+		value, k, err := FieldValue(msg, field)
+		if err != nil {
+			return nil, 0, fmt.Errorf("field(%s) could not be found", strings.Join(fields[0:x], "."))
+		}
+		if k != protoreflect.MessageKind {
+			return nil, 0, fmt.Errorf("field(%s) should be a message, was a %s", strings.Join(fields[0:x], "."), k)
+		}
+		if value == nil {
+			return nil, 0, fmt.Errorf("field(%s) is an empty message, so the field isn't set", strings.Join(fields[0:x], "."))
+		}
+		msg = value.(proto.Message)
+	}
+
+	return FieldValue(msg, fields[len(fields)-1])
 }
 
 type enumDescriptor interface {
@@ -189,6 +223,43 @@ func UpdateProtoField(m proto.Message, fieldName string, value interface{}) erro
 	}
 	return nil
 }
+
+// HumanDiff is a wrapper aound go-cmp using the protocmp.Transform. It outputs a string of what changes from a to b.
+// Options to pass can be found at: https://pkg.go.dev/google.golang.org/protobuf/testing/protocmp .
+func HumanDiff(a, b proto.Message, options ...cmp.Option) string {
+	options = append(options, protocmp.Transform())
+	return cmp.Diff(a, b, options...)
+}
+
+// Equal returns an empty string if the two protos are equal. Otherwise it returns -want/+got.
+// This is the same as HumanDiff, but order is reversed.
+func Equal(want, got proto.Message, options ...cmp.Option) string {
+	options = append(options, protocmp.Transform())
+	return cmp.Diff(want, got, options...)
+}
+
+/*
+// FieldChange details a field that changed in a proto. If the field is a non-message, .From* and .To*
+// will contain the value.
+type FieldChange struct {
+	// Name is the name of the field.
+	Name string
+	// Path is the path to that field in the proto you diffed. The field will be at:
+	// strings.Join(fc.Path, ".") + "." + fc.Name .
+	Path []string
+	Kind protoreflect.Kind
+	From, To interface{}
+}
+
+// FQPath will return the fully qualified path to the value.
+func (f FieldChange) FQPath() string {
+	return strings.Join(f.Path, ".") + "." + f.Name
+}
+
+func DiffField(msg proto.Message, fqPath string) (FieldChange, error) {
+
+}
+*/
 
 // this code is borrowed and modified faith code.
 // TODO(johnsiilver): Add attribution.

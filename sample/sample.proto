@@ -18,3 +18,13 @@ message Supported {
 	int64 vint64 = 4;
 	bool vbool = 5;
 }
+
+message Layer0 {
+	Layer1 layer1 = 1;
+	int32 vint32 = 2;
+}
+
+message Layer1 {
+	Supported supported = 1;
+	string vstring = 2;
+}

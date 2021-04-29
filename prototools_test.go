@@ -4,6 +4,9 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/kylelemons/godebug/pretty"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/testing/protocmp"
 
 	pb "github.com/johnsiilver/prototools/sample"
@@ -151,6 +154,95 @@ func TestUpdateProtoField(t *testing.T) {
 		}
 		if diff := cmp.Diff(test.want, test.start, protocmp.Transform()); diff != "" {
 			t.Errorf("TestUpdateProtoField(%s): -want/+got:\n%s", test.desc, diff)
+		}
+	}
+}
+
+func TestGetField(t *testing.T) {
+	msg := &pb.Layer0{
+		Vint32: 3,
+		Layer1: &pb.Layer1{
+			Vstring: "hello",
+			Supported: &pb.Supported{
+				Ev:    pb.EnumValues_EV_Ok,
+				Vbool: true,
+			},
+		},
+	}
+
+	tests := []struct {
+		desc     string
+		fqPath   string
+		err      bool
+		wantVal  interface{}
+		wantKind protoreflect.Kind
+		protocmp bool
+	}{
+		{
+			desc:   "Non-existent field in first message",
+			fqPath: "what",
+			err:    true,
+		},
+		{
+			desc:     "Field in first message",
+			fqPath:   "vint32",
+			err:      false,
+			wantVal:  int32(3),
+			wantKind: protoreflect.Int32Kind,
+		},
+		{
+			desc:     "Field in the first message that is a message",
+			fqPath:   "layer1",
+			err:      false,
+			wantVal:  msg.Layer1,
+			wantKind: protoreflect.MessageKind,
+			protocmp: true,
+		},
+		{
+			desc:     "Field in second message",
+			fqPath:   "layer1.vstring",
+			err:      false,
+			wantVal:  "hello",
+			wantKind: protoreflect.StringKind,
+		},
+		{
+			desc:     "enum in third message",
+			fqPath:   "layer1.supported.ev",
+			err:      false,
+			wantVal:  pb.EnumValues_EV_Ok,
+			wantKind: protoreflect.EnumKind,
+		},
+	}
+
+	for _, test := range tests {
+		v, k, err := GetField(msg, test.fqPath)
+		switch {
+		case err == nil && test.err:
+			t.Errorf("TestGetField(%s): got err == nil, want err != nil", test.desc)
+			continue
+		case err != nil && !test.err:
+			t.Errorf("TestGetField(%s): got err == %s, want err == nil", test.desc, err)
+			continue
+		case err != nil:
+			continue
+		}
+
+		if k != test.wantKind {
+			t.Errorf("TestGetField(%s): Kind: got %v, want %v", test.desc, k, test.wantKind)
+			continue
+		}
+
+		if test.protocmp {
+			wp := test.wantVal.(proto.Message)
+			vp := v.(proto.Message)
+			if diff := Equal(wp, vp); diff != "" {
+				t.Errorf("TestGetField(%s): Val: -want/+got:\n%s", test.desc, diff)
+			}
+			continue
+		}
+
+		if diff := pretty.Compare(v, test.wantVal); diff != "" {
+			t.Errorf("TestGetField(%s): Val: -want/+got:\n%s", test.desc, diff)
 		}
 	}
 }
