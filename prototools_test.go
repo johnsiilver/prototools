@@ -1,7 +1,9 @@
 package prototools
 
 import (
+	//	"log"
 	"testing"
+	//	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/kylelemons/godebug/pretty"
@@ -49,6 +51,9 @@ func TestReadbleProto(t *testing.T) {
 }
 
 func TestFieldAsStr(t *testing.T) {
+	//now := time.Now()
+	//log.Println(now.Unix())
+	//log.Println(now)
 	data := &pb.Layer1{
 		Supported: &pb.Supported{
 			Vint32:  32,
@@ -56,6 +61,9 @@ func TestFieldAsStr(t *testing.T) {
 			Vstring: "string",
 			Vbool:   true,
 			Ev:      pb.EnumValues_EV_Ok,
+			VTime:   1619820228,
+			Vfloat:  float32(3.4569),
+			Vdouble: float64(8.9645),
 		},
 		Vstring: "Hello",
 	}
@@ -70,8 +78,12 @@ func TestFieldAsStr(t *testing.T) {
 		{"int64", "supported.vint64", "64", false},
 		{"string", "supported.vstring", "string", false},
 		{"bool", "supported.vbool", "true", false},
+		{"bool", "supported.vbool", "True", true},
 		{"enum", "supported.ev", "EV_Ok", false},
 		{"enum", "supported.ev", "Ok", true},
+		{"time", "supported.v_time", "2021-04-30 22:03:48 +0000 UTC", false},
+		{"float", "supported.vfloat", "3.46", false},
+		{"double", "supported.vdouble", "8.96", false},
 	}
 
 	for _, test := range tests {

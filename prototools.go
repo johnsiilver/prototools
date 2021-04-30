@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -119,7 +120,11 @@ func ReadableProto(s string) string {
 
 // FieldAsStr returns the content of the field as a string. If pretty is set, it will try to pretty
 // an enumerator by chopping off the text before the first "_", replacing the rest with a space, and
-// doing a string.Title() on all the words. Aka: TYPE_UNKNOWN_DEVICE become: "Unknown Device".
+// doing a string.Title() on all the words. Aka: TYPE_UNKNOWN_DEVICE become: "Unknown Device". A user
+// should not depend on the output of this string, as this may change over time without warning.
+// If the field is _time and an int64, it is assumed to be unix time(epoch) in nanoseconds. If the field is
+// a message, we protojson.Marshal() it. float or double values are printed out with 2 decimal places rounded up.
+// We only support these values: boo, string, int32, int64, float, double, enum and message. We do not supports groups (repeated).
 func FieldAsStr(msg proto.Message, fqPath string, pretty bool) (string, error) {
 	fv, err := GetField(msg, fqPath)
 	if err != nil {
@@ -127,6 +132,25 @@ func FieldAsStr(msg proto.Message, fqPath string, pretty bool) (string, error) {
 	}
 
 	switch fv.Kind {
+	case protoreflect.BoolKind:
+		if pretty {
+			return strings.Title(fmt.Sprintf("%v", fv.Value)), nil
+		}
+		return fmt.Sprintf("%v", fv.Value), nil
+	case protoreflect.StringKind:
+		return fv.Value.(string), nil
+	case protoreflect.BytesKind:
+		return fmt.Sprintf("[%d]bytes", len(fv.Value.([]byte))), nil
+	case protoreflect.Int32Kind:
+		return fmt.Sprintf("%v", fv.Value), nil
+	case protoreflect.Int64Kind:
+		if strings.HasSuffix(fqPath, "_time") {
+			t := time.Unix(fv.Value.(int64), 0).Truncate(0).UTC()
+			return fmt.Sprintf("%v", t), nil
+		}
+		return fmt.Sprintf("%v", fv.Value), nil
+	case protoreflect.FloatKind, protoreflect.DoubleKind:
+		return fmt.Sprintf("%.2f", fv.Value), nil
 	case protoreflect.EnumKind:
 		if pretty {
 			return prettyEnum(string(fv.EnumDesc.Name())), nil
@@ -139,7 +163,7 @@ func FieldAsStr(msg proto.Message, fqPath string, pretty bool) (string, error) {
 		}
 		return string(b), nil
 	}
-	return fmt.Sprintf("%v", fv.Value), nil
+	return "", fmt.Errorf("type not supported")
 }
 
 func prettyEnum(s string) string {

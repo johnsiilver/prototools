@@ -17,6 +17,9 @@ message Supported {
 	int32 vint32 = 3;
 	int64 vint64 = 4;
 	bool vbool = 5;
+	int64 v_time = 6;
+	float vfloat = 7;
+	double vdouble = 8;
 }
 
 message Layer0 {
