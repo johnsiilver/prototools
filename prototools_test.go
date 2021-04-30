@@ -49,28 +49,33 @@ func TestReadbleProto(t *testing.T) {
 }
 
 func TestFieldAsStr(t *testing.T) {
-	data := &pb.Supported{
-		Vint32:  32,
-		Vint64:  64,
-		Vstring: "string",
-		Vbool:   true,
-		Ev:      pb.EnumValues_EV_Ok,
+	data := &pb.Layer1{
+		Supported: &pb.Supported{
+			Vint32:  32,
+			Vint64:  64,
+			Vstring: "string",
+			Vbool:   true,
+			Ev:      pb.EnumValues_EV_Ok,
+		},
+		Vstring: "Hello",
 	}
 
 	tests := []struct {
-		desc  string
-		field string
-		want  string
+		desc   string
+		field  string
+		want   string
+		pretty bool
 	}{
-		{"int32", "vint32", "32"},
-		{"int64", "vint64", "64"},
-		{"string", "vstring", "string"},
-		{"bool", "vbool", "true"},
-		{"enum", "ev", "EV_Ok"},
+		{"int32", "supported.vint32", "32", false},
+		{"int64", "supported.vint64", "64", false},
+		{"string", "supported.vstring", "string", false},
+		{"bool", "supported.vbool", "true", false},
+		{"enum", "supported.ev", "EV_Ok", false},
+		{"enum", "supported.ev", "Ok", true},
 	}
 
 	for _, test := range tests {
-		got, err := FieldAsStr(data, test.field)
+		got, err := FieldAsStr(data, test.field, test.pretty)
 		if err != nil {
 			t.Errorf("TestFieldAsStr(%s): got unexpected error: %s", test.desc, err)
 			continue
@@ -199,6 +204,11 @@ func TestGetField(t *testing.T) {
 			protocmp: true,
 		},
 		{
+			desc:   "Non-existent field second message",
+			fqPath: "layer1.blah",
+			err:    true,
+		},
+		{
 			desc:     "Field in second message",
 			fqPath:   "layer1.vstring",
 			err:      false,
@@ -215,7 +225,7 @@ func TestGetField(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		v, k, err := GetField(msg, test.fqPath)
+		fv, err := GetField(msg, test.fqPath)
 		switch {
 		case err == nil && test.err:
 			t.Errorf("TestGetField(%s): got err == nil, want err != nil", test.desc)
@@ -227,21 +237,21 @@ func TestGetField(t *testing.T) {
 			continue
 		}
 
-		if k != test.wantKind {
-			t.Errorf("TestGetField(%s): Kind: got %v, want %v", test.desc, k, test.wantKind)
+		if fv.Kind != test.wantKind {
+			t.Errorf("TestGetField(%s): Kind: got %v, want %v", test.desc, fv.Kind, test.wantKind)
 			continue
 		}
 
 		if test.protocmp {
 			wp := test.wantVal.(proto.Message)
-			vp := v.(proto.Message)
+			vp := fv.Value.(proto.Message)
 			if diff := Equal(wp, vp); diff != "" {
 				t.Errorf("TestGetField(%s): Val: -want/+got:\n%s", test.desc, diff)
 			}
 			continue
 		}
 
-		if diff := pretty.Compare(v, test.wantVal); diff != "" {
+		if diff := pretty.Compare(fv.Value, test.wantVal); diff != "" {
 			t.Errorf("TestGetField(%s): Val: -want/+got:\n%s", test.desc, diff)
 		}
 	}

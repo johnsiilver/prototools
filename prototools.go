@@ -10,14 +10,47 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/go-cmp/cmp"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/testing/protocmp"
 )
 
-var (
-	ErrBadFieldName = errors.New("the field with that name does not exist")
+//go:generate stringer -type=ErrCode
+
+// ErrCode reprsents an error code.
+type ErrCode int8
+
+const (
+	// ErrUnknown means the code wasn't set.
+	ErrUnknown ErrCode = 0
+	// ErrIntermediateNotMessage means that one of the intermediate fields
+	// was not a proto Message type. Aka, msg1.msg2.field , if msg1 or msg2
+	// was not a Message.
+	ErrIntermediateNotMessage ErrCode = 1
+	// ErrIntermdiateNotSet indicates that one of the intermediates messsages was
+	// nil.
+	ErrIntermdiateNotSet ErrCode = 2
+	// ErrBadFieldName indicates that one the fields did not exist in the message.
+	// This is not the same as a message having a nil value, which is ErrIntermdiateNotSet.
+	ErrBadFieldName = 3
 )
+
+// Error is our internal error types with error codes.
+type Error struct {
+	Code ErrCode
+	Msg  string
+}
+
+// Error implements error.
+func (e Error) Error() string {
+	return fmt.Sprintf("%s: %s", e.Code, e.Msg)
+}
+
+// Errorf is like fmt.Errorf but with our coded error type.
+func Errorf(code ErrCode, msg string, i ...interface{}) Error {
+	return Error{Code: code, Msg: fmt.Sprintf(msg, i...)}
+}
 
 // JSONName converts the proto name of a field to the JSON equivalent.
 // This assumes ASCII names and that the proto name kept best practices
@@ -84,26 +117,81 @@ func ReadableProto(s string) string {
 	return strings.Join(words, " ")
 }
 
-// FieldAsStr returns the content of the field as a string.
-func FieldAsStr(msg proto.Message, field string) (string, error) {
-	i, k, err := FieldValue(msg, field)
+// FieldAsStr returns the content of the field as a string. If pretty is set, it will try to pretty
+// an enumerator by chopping off the text before the first "_", replacing the rest with a space, and
+// doing a string.Title() on all the words. Aka: TYPE_UNKNOWN_DEVICE become: "Unknown Device".
+func FieldAsStr(msg proto.Message, fqPath string, pretty bool) (string, error) {
+	fv, err := GetField(msg, fqPath)
 	if err != nil {
 		return "", err
 	}
 
-	if k == protoreflect.EnumKind {
-		ref := msg.ProtoReflect()
-		descriptors := ref.Descriptor().Fields()
-		fd := descriptors.ByName(protoreflect.Name(field))
-		enumDesc := fd.Enum().Values().ByNumber(i.(protoreflect.EnumNumber))
-		return string(enumDesc.Name()), nil
+	switch fv.Kind {
+	case protoreflect.EnumKind:
+		if pretty {
+			return prettyEnum(string(fv.EnumDesc.Name())), nil
+		}
+		return string(fv.EnumDesc.Name()), nil
+	case protoreflect.MessageKind:
+		b, err := protojson.Marshal(fv.Value.(proto.Message))
+		if err != nil {
+			return "", err
+		}
+		return string(b), nil
 	}
+	return fmt.Sprintf("%v", fv.Value), nil
+}
 
-	return fmt.Sprintf("%v", i), nil
+func prettyEnum(s string) string {
+	sp := strings.Split(s, "_")
+	if len(sp) == 1 {
+		return strings.Title(strings.ToLower(s))
+	}
+	sp = sp[1:]
+	b := &strings.Builder{}
+	for i, word := range sp {
+		if i > 0 {
+			b.WriteString(" ")
+		}
+		b.WriteString(strings.Title(strings.ToLower(word)))
+	}
+	return b.String()
+}
+
+// FQPathSplit separates fqpath at ".".
+func FQPathSplit(fqpath string) []string {
+	return strings.Split(fqpath, ".")
+}
+
+// FQPathField extracts just the field's name.
+func FQPathField(fqpath string) string {
+	sp := FQPathSplit(fqpath)
+	if len(sp) == 0 {
+		return ""
+	}
+	return sp[len(sp)-1]
+}
+
+// FieldValue provides the proto value of a field.
+type FieldValue struct {
+	// Value is Go value of that field. Enumerators are of type protoreflect.EnumNumber
+	// which is an int32.
+	Value interface{}
+	// Kind is the proto Kind that was stored.
+	Kind protoreflect.Kind
+	// EnumDesc is the enumerator descriptor if the Kind was EnumKind.
+	// Usually this is used to call .Name() to get the text string representation
+	// or FullName() if you want the package path + name.
+	EnumDesc protoreflect.EnumValueDescriptor
 }
 
 /*
-FieldValue returns the value of a field as an interface{}, the kind of protocol field it is and an error if there is one.
+GetField searches into a proto to get a field value. It returns the value as
+an interface{}, the kind of the field and if the field was found. You use a "."
+notation to dive into the proto (field.field.field , where everything but the
+last must be a Message type). We use the proto file spelling, not JSON or local
+language spellings of the fields. You cannot look into groups (repeated values/array/slice...).
+
 The following is the kind to Go type mapping:
 
 	╔════════════╤═════════════════════════════════════╗
@@ -123,47 +211,57 @@ The following is the kind to Go type mapping:
 	╚════════════╧═════════════════════════════════════╝
 
 */
+func GetField(msg proto.Message, fqPath string) (FieldValue, error) {
+	fields := FQPathSplit(fqPath)
+	for x, field := range fields[0 : len(fields)-1] {
+		fv, err := fieldValue(msg, field)
+		if err != nil {
+			return FieldValue{}, Errorf(ErrBadFieldName, "field(%s) could not be found", strings.Join(fields[0:x], "."))
+		}
+		if fv.Kind != protoreflect.MessageKind {
+			return FieldValue{}, Errorf(ErrIntermediateNotMessage, "field(%s) should be a message, was a %s", strings.Join(fields[0:x], "."), fv.Kind)
+		}
+		if fv.Value == nil {
+			return FieldValue{}, Errorf(ErrIntermdiateNotSet, "message field(%s) is an empty message", strings.Join(fields[0:x], "."))
+		}
+		msg = fv.Value.(proto.Message)
+	}
 
-// FieldValue gets a field from msg.
-func FieldValue(msg proto.Message, field string) (interface{}, protoreflect.Kind, error) {
+	fv, err := fieldValue(msg, fields[len(fields)-1])
+	if err != nil {
+		return FieldValue{}, Errorf(ErrBadFieldName, "field(%s) could not be found", fqPath)
+	}
+	return fv, nil
+}
+
+// fieldValue gets a field from msg.
+func fieldValue(msg proto.Message, field string) (FieldValue, error) {
 	ref := msg.ProtoReflect()
 	descriptors := ref.Descriptor().Fields()
 	fd := descriptors.ByName(protoreflect.Name(field))
 	if fd == nil {
-		return nil, 0, fmt.Errorf("could not get field named %q: %w", field, ErrBadFieldName)
+		return FieldValue{}, errors.New("bad field name")
 	}
 
-	if fd.Kind() == protoreflect.MessageKind {
-		return ref.Get(fd).Message().Interface(), fd.Kind(), nil
+	switch fd.Kind() {
+	case protoreflect.MessageKind:
+		return FieldValue{
+			Value: ref.Get(fd).Message().Interface(),
+			Kind:  protoreflect.MessageKind,
+		}, nil
+	case protoreflect.EnumKind:
+		i := ref.Get(fd).Interface()
+		enumDesc := fd.Enum().Values().ByNumber(i.(protoreflect.EnumNumber))
+		return FieldValue{
+			Value:    protoreflect.ValueOfEnum(enumDesc.Number()).Interface(),
+			Kind:     protoreflect.EnumKind,
+			EnumDesc: enumDesc,
+		}, nil
 	}
-
-	return ref.Get(fd).Interface(), fd.Kind(), nil
-}
-
-func fqPathSplit(fqpath string) []string {
-	return strings.Split(fqpath, ".")
-}
-
-// GetField searches into a proto to get a field value. It returns the value as an interface{}, the kind of the field
-// and if the field was found. You use a "." notation to dive into the proto (field.field.field , where everything but the last must be a Message type). We use the proto file spelling, not JSON or local language of the fields. You cannot look into groups (repeated values/array/slice...).
-func GetField(msg proto.Message, fqPath string) (value interface{}, kind protoreflect.Kind, err error) {
-	fields := fqPathSplit(fqPath)
-	for x, field := range fields[0 : len(fields)-1] {
-		var value interface{}
-		value, k, err := FieldValue(msg, field)
-		if err != nil {
-			return nil, 0, fmt.Errorf("field(%s) could not be found", strings.Join(fields[0:x], "."))
-		}
-		if k != protoreflect.MessageKind {
-			return nil, 0, fmt.Errorf("field(%s) should be a message, was a %s", strings.Join(fields[0:x], "."), k)
-		}
-		if value == nil {
-			return nil, 0, fmt.Errorf("field(%s) is an empty message, so the field isn't set", strings.Join(fields[0:x], "."))
-		}
-		msg = value.(proto.Message)
-	}
-
-	return FieldValue(msg, fields[len(fields)-1])
+	return FieldValue{
+		Value: ref.Get(fd).Interface(),
+		Kind:  fd.Kind(),
+	}, nil
 }
 
 type enumDescriptor interface {
@@ -224,7 +322,7 @@ func UpdateProtoField(m proto.Message, fieldName string, value interface{}) erro
 	return nil
 }
 
-// HumanDiff is a wrapper aound go-cmp using the protocmp.Transform. It outputs a string of what changes from a to b.
+// HumanDiff is a wrapper aound go-cmp using the protocmp.Transform. It outputs a string of what changes from a (older) to b (newer).
 // Options to pass can be found at: https://pkg.go.dev/google.golang.org/protobuf/testing/protocmp .
 func HumanDiff(a, b proto.Message, options ...cmp.Option) string {
 	options = append(options, protocmp.Transform())
@@ -261,8 +359,7 @@ func DiffField(msg proto.Message, fqPath string) (FieldChange, error) {
 }
 */
 
-// this code is borrowed and modified faith code.
-// TODO(johnsiilver): Add attribution.
+// this code is borrowed and modified faith code(github.com/fatih/camelcase)
 func split(src string, splitNum bool) (entries []string) {
 	// don't split invalid utf8
 	if !utf8.ValidString(src) {
