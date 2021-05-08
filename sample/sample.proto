@@ -23,8 +23,13 @@ message Supported {
 }
 
 message Layer0 {
+	enum EnumEmbedded{
+		EE_UNKNOWN = 0;
+		EE_WHATEVER = 1;
+	}
 	Layer1 layer1 = 1;
 	int32 vint32 = 2;
+	EnumEmbedded ee = 3;
 }
 
 message Layer1 {

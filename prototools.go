@@ -1,10 +1,31 @@
-// Package prototools provide functions for performing reflection based operations on protocol buffers.
-// These can be useful when extracting or updating proto fields based on field names.
+/*
+Package prototools provide functions for performing reflection based operations on protocol buffers.
+These can be useful when extracting or updating proto fields based on field names.
+
+It should be noted that this package makes some assumptions and lacks certain features at the moment.
+
+The big assumption is how fields are named.  Best practice says fields are lower_case_seperated_with_underscore.
+Enuerators are CAPITALS_WITH_A_LEADING_WORD_FOR_UNIQUENESS_WITH_UNDERSCORES. Many things here might not work
+as expected if you are not following these guidelines.
+
+There are two big things that we mostly ignore, maps and arrays. We just don't introspect them except where noted
+as that gets complicated and I don't need the capability at the moment.
+
+Finally, I am mostly ignoring all the "fixed" types, Any and whatever the types were before Any (my brain can't remember
+what those were called, I wouldn't even use them when I worked at Google, so not doing it here).
+
+This "may" work with OneOf's, but I haven't tried.
+
+You might ask yourself, why even bother if you don't do these?  Well, most of the time for what this package will get used for,
+which is data exchange for web stuff, these things don't matter. Again, fits my purpose for the moment.  If I need more
+complicated stuff, I'll add it at a later date.
+*/
 package prototools
 
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 	"unicode"
@@ -125,47 +146,58 @@ func ReadableProto(s string) string {
 // If the field is _time and an int64, it is assumed to be unix time(epoch) in nanoseconds. If the field is
 // a message, we protojson.Marshal() it. float or double values are printed out with 2 decimal places rounded up.
 // We only support these values: boo, string, int32, int64, float, double, enum and message. We do not supports groups (repeated).
-func FieldAsStr(msg proto.Message, fqPath string, pretty bool) (string, error) {
+func FieldAsStr(msg proto.Message, fqPath string, pretty bool) (string, protoreflect.Kind, error) {
 	fv, err := GetField(msg, fqPath)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 
 	switch fv.Kind {
 	case protoreflect.BoolKind:
 		if pretty {
-			return strings.Title(fmt.Sprintf("%v", fv.Value)), nil
+			return strings.Title(fmt.Sprintf("%v", fv.Value)), fv.Kind, nil
 		}
-		return fmt.Sprintf("%v", fv.Value), nil
+		return fmt.Sprintf("%v", fv.Value), fv.Kind, nil
 	case protoreflect.StringKind:
-		return fv.Value.(string), nil
+		return fv.Value.(string), fv.Kind, nil
 	case protoreflect.BytesKind:
-		return fmt.Sprintf("[%d]bytes", len(fv.Value.([]byte))), nil
+		return fmt.Sprintf("[%d]bytes", len(fv.Value.([]byte))), fv.Kind, nil
 	case protoreflect.Int32Kind:
-		return fmt.Sprintf("%v", fv.Value), nil
+		return fmt.Sprintf("%v", fv.Value), fv.Kind, nil
 	case protoreflect.Int64Kind:
 		if strings.HasSuffix(fqPath, "_time") {
 			t := time.Unix(fv.Value.(int64), 0).Truncate(0).UTC()
-			return fmt.Sprintf("%v", t), nil
+			return fmt.Sprintf("%v", t), fv.Kind, nil
 		}
-		return fmt.Sprintf("%v", fv.Value), nil
+		return fmt.Sprintf("%v", fv.Value), fv.Kind, nil
 	case protoreflect.FloatKind, protoreflect.DoubleKind:
-		return fmt.Sprintf("%.2f", fv.Value), nil
+		return fmt.Sprintf("%.2f", fv.Value), fv.Kind, nil
 	case protoreflect.EnumKind:
 		if pretty {
-			return prettyEnum(string(fv.EnumDesc.Name())), nil
+			return prettyEnum(string(fv.EnumDesc.Name())), fv.Kind, nil
 		}
-		return string(fv.EnumDesc.Name()), nil
+		return string(fv.EnumDesc.Name()), fv.Kind, nil
 	case protoreflect.MessageKind:
 		b, err := protojson.Marshal(fv.Value.(proto.Message))
 		if err != nil {
-			return "", err
+			return "", fv.Kind, err
 		}
-		return string(b), nil
+		return string(b), fv.Kind, nil
 	}
-	return "", fmt.Errorf("type not supported")
+	return "", fv.Kind, fmt.Errorf("type not supported")
 }
 
+func protoToTitled(s string) string {
+	sp := strings.Split(s, "_")
+	sp = sp[1:]
+	for i, w := range sp {
+		sp[i] = strings.Title(strings.ToLower(w))
+	}
+	return strings.Join(sp, " ")
+}
+
+// TODO(jdoak): This and protoToTitled are the same. Test which is more efficient
+// and use that one.
 func prettyEnum(s string) string {
 	sp := strings.Split(s, "_")
 	if len(sp) == 1 {
@@ -199,14 +231,29 @@ func FQPathField(fqpath string) string {
 // FieldValue provides the proto value of a field.
 type FieldValue struct {
 	// Value is Go value of that field. Enumerators are of type protoreflect.EnumNumber
-	// which is an int32.
+	// which is an int32. Be aware that if the Kind is a MessageKind, this value
+	// can be a nil value stored in an interface{}. That means Value != nil, but
+	// the value inside is nil (yeah, I know). Had to do this for certain reasons.
+	// There is a IsNil() method if you want to test if the stored value == nil.
 	Value interface{}
 	// Kind is the proto Kind that was stored.
 	Kind protoreflect.Kind
+	// FieldDesc is the field descriptor for this value.
+	FieldDesc protoreflect.FieldDescriptor
 	// EnumDesc is the enumerator descriptor if the Kind was EnumKind.
 	// Usually this is used to call .Name() to get the text string representation
 	// or FullName() if you want the package path + name.
 	EnumDesc protoreflect.EnumValueDescriptor
+	// MsgDesc is the message descriptor if the Kind was MessageKind.
+	MsgDesc protoreflect.MessageDescriptor
+}
+
+// IsNil determins if the value stored in .Value is nil.
+func (f FieldValue) IsNil() bool {
+	if f.Value == nil {
+		return true
+	}
+	return reflect.ValueOf(f.Value).IsNil()
 }
 
 /*
@@ -258,6 +305,33 @@ func GetField(msg proto.Message, fqPath string) (FieldValue, error) {
 	return fv, nil
 }
 
+// getLastMessage will takes the path and returns the len(fqPath) -1 proto.Message. If createmessage is set, this will create the
+// message values if they are not set through the entire path except the inital message passed as "msg".
+func getLastMessage(msg proto.Message, fqPath []string, createMessages bool) (protoreflect.Message, error) {
+	fields := fqPath[0 : len(fqPath)-1]
+	for x, field := range fields {
+		fv, err := fieldValue(msg, field)
+		if err != nil {
+			return nil, Errorf(ErrBadFieldName, "field(%s) could not be found", strings.Join(fields[0:x], "."))
+		}
+		if fv.Kind != protoreflect.MessageKind {
+			return nil, Errorf(ErrIntermediateNotMessage, "field(%s) should be a message, was a %s", strings.Join(fields[0:x], "."), fv.Kind)
+		}
+		if fv.IsNil() {
+			if createMessages {
+				fieldMsg := fv.Value.(proto.Message).ProtoReflect()
+				n := fieldMsg.New()
+				msg.ProtoReflect().Set(fv.FieldDesc, protoreflect.ValueOf(n))
+				msg = n.Interface()
+				continue
+			}
+			return nil, Errorf(ErrIntermdiateNotSet, "message field(%s) is an empty message", strings.Join(fields[0:x], "."))
+		}
+		msg = fv.Value.(proto.Message)
+	}
+	return msg.ProtoReflect(), nil
+}
+
 // fieldValue gets a field from msg.
 func fieldValue(msg proto.Message, field string) (FieldValue, error) {
 	ref := msg.ProtoReflect()
@@ -269,22 +343,27 @@ func fieldValue(msg proto.Message, field string) (FieldValue, error) {
 
 	switch fd.Kind() {
 	case protoreflect.MessageKind:
+		var v = ref.Get(fd).Message().Interface()
 		return FieldValue{
-			Value: ref.Get(fd).Message().Interface(),
-			Kind:  protoreflect.MessageKind,
+			Value:     v,
+			Kind:      protoreflect.MessageKind,
+			FieldDesc: fd,
+			MsgDesc:   fd.Message(),
 		}, nil
 	case protoreflect.EnumKind:
 		i := ref.Get(fd).Interface()
 		enumDesc := fd.Enum().Values().ByNumber(i.(protoreflect.EnumNumber))
 		return FieldValue{
-			Value:    protoreflect.ValueOfEnum(enumDesc.Number()).Interface(),
-			Kind:     protoreflect.EnumKind,
-			EnumDesc: enumDesc,
+			Value:     protoreflect.ValueOfEnum(enumDesc.Number()).Interface(),
+			Kind:      protoreflect.EnumKind,
+			FieldDesc: fd,
+			EnumDesc:  enumDesc,
 		}, nil
 	}
 	return FieldValue{
-		Value: ref.Get(fd).Interface(),
-		Kind:  fd.Kind(),
+		Value:     ref.Get(fd).Interface(),
+		Kind:      fd.Kind(),
+		FieldDesc: fd,
 	}, nil
 }
 
@@ -296,8 +375,18 @@ type enumDescriptor interface {
 // UpdateProtoField updates a field in a protocol buffer message with a value.
 // The field is assumed to be the proto name format.
 // This only supports values of string, int, int32, int64 and bool. An int updates an int64.
-func UpdateProtoField(m proto.Message, fieldName string, value interface{}) error {
-	v := m.ProtoReflect()
+func UpdateProtoField(m proto.Message, fqPath string, value interface{}) error {
+	fields := FQPathSplit(fqPath)
+	if len(fields) == 0 {
+		return fmt.Errorf("cannot send a path(%s) of zero len", fqPath)
+	}
+	fieldName := fields[len(fields)-1]
+
+	v, err := getLastMessage(m, fields, false)
+	if err != nil {
+		return err
+	}
+
 	fd := v.Descriptor().Fields().ByName(protoreflect.Name(fieldName))
 	if fd == nil {
 		return fmt.Errorf("field %s not found", fieldName)
@@ -338,8 +427,9 @@ func UpdateProtoField(m proto.Message, fieldName string, value interface{}) erro
 		}
 		v.Set(fd, protoreflect.ValueOf(t))
 	case enumDescriptor:
-		n := int32(t.Number())
-		return UpdateProtoField(m, fieldName, n)
+		n := t.Number()
+		enum := protoreflect.ValueOfEnum(n)
+		v.Set(fd, enum)
 	default:
 		return fmt.Errorf("field %s cannot be set to %T, as that type isn't supported", fieldName, value)
 	}

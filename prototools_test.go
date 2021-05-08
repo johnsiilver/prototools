@@ -1,9 +1,7 @@
 package prototools
 
 import (
-	//	"log"
 	"testing"
-	//	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/kylelemons/godebug/pretty"
@@ -51,9 +49,6 @@ func TestReadbleProto(t *testing.T) {
 }
 
 func TestFieldAsStr(t *testing.T) {
-	//now := time.Now()
-	//log.Println(now.Unix())
-	//log.Println(now)
 	data := &pb.Layer1{
 		Supported: &pb.Supported{
 			Vint32:  32,
@@ -87,7 +82,7 @@ func TestFieldAsStr(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		got, err := FieldAsStr(data, test.field, test.pretty)
+		got, _, err := FieldAsStr(data, test.field, test.pretty)
 		if err != nil {
 			t.Errorf("TestFieldAsStr(%s): got unexpected error: %s", test.desc, err)
 			continue
@@ -98,67 +93,120 @@ func TestFieldAsStr(t *testing.T) {
 	}
 }
 
+func TestGetLastMessage(t *testing.T) {
+	// Note: Almost all cases are tested in UpdateProtoField, except one.
+	// That option isn't used there, so here's that test.
+	toUpdate := &pb.Layer0{}
+
+	msg, err := getLastMessage(toUpdate, []string{"layer1", "supported", "vstring"}, true)
+	if err != nil {
+		t.Fatalf("TestGetLastMessage: got err == %s, want err == nil", err)
+	}
+	msg.Interface().(*pb.Supported).Vstring = "Hello"
+
+	if toUpdate.Layer1.Supported.Vstring != "Hello" {
+		t.Fatalf("TestGetLastMessage: createMessages option isn't working")
+	}
+}
+
 func TestUpdateProtoField(t *testing.T) {
+	toUpdate := &pb.Layer1{}
+
 	tests := []struct {
-		desc      string
-		start     *pb.Supported
-		want      *pb.Supported
-		fieldName string
-		value     interface{}
-		err       bool
+		desc           string
+		supportedExist bool
+		createMessages bool
+		want           *pb.Layer1
+		fieldName      string
+		value          interface{}
+		err            bool
 	}{
 		{
-			desc:      "int32",
-			start:     &pb.Supported{},
-			want:      &pb.Supported{Vint32: 32},
-			fieldName: "vint32",
+			desc: "string at top message",
+			want: &pb.Layer1{
+				Vstring: "hello",
+			},
+			fieldName: "vstring",
+			value:     "hello",
+		},
+
+		{
+			desc:           "int32",
+			supportedExist: true,
+			want: &pb.Layer1{
+				Supported: &pb.Supported{Vint32: 32},
+			},
+			fieldName: "supported.vint32",
 			value:     int32(32),
 		},
 		{
-			desc:      "int",
-			start:     &pb.Supported{},
-			want:      &pb.Supported{Vint64: 64},
-			fieldName: "vint64",
+			desc:           "int",
+			supportedExist: true,
+			want: &pb.Layer1{
+				Supported: &pb.Supported{Vint64: 64},
+			},
+			fieldName: "supported.vint64",
 			value:     64,
 		},
 		{
-			desc:      "int64",
-			start:     &pb.Supported{},
-			want:      &pb.Supported{Vint64: 64},
-			fieldName: "vint64",
+			desc:           "int64",
+			supportedExist: true,
+			want: &pb.Layer1{
+				Supported: &pb.Supported{Vint64: 64},
+			},
+			fieldName: "supported.vint64",
 			value:     int64(64),
 		},
 		{
-			desc:      "string",
-			start:     &pb.Supported{},
-			want:      &pb.Supported{Vstring: "John Doak"},
-			fieldName: "vstring",
+			desc:           "string",
+			supportedExist: true,
+			want: &pb.Layer1{
+				Supported: &pb.Supported{Vstring: "John Doak"},
+			},
+			fieldName: "supported.vstring",
 			value:     "John Doak",
 		},
 		{
-			desc:      "int32 to enum",
-			start:     &pb.Supported{},
-			want:      &pb.Supported{Ev: pb.EnumValues_EV_Ok},
-			fieldName: "ev",
+			desc:           "int32 to enum",
+			supportedExist: true,
+			want: &pb.Layer1{
+				Supported: &pb.Supported{Ev: pb.EnumValues_EV_Ok},
+			},
+			fieldName: "supported.ev",
 			value:     int32(1),
 		},
 		{
-			desc:      "enum to enum",
-			start:     &pb.Supported{},
-			want:      &pb.Supported{Ev: pb.EnumValues_EV_Ok},
-			fieldName: "ev",
+			desc:           "enum to enum",
+			supportedExist: true,
+			want: &pb.Layer1{
+				Supported: &pb.Supported{Ev: pb.EnumValues_EV_Ok},
+			},
+			fieldName: "supported.ev",
 			value:     pb.EnumValues_EV_Ok,
 		},
 		{
-			desc:      "bool",
-			start:     &pb.Supported{},
-			want:      &pb.Supported{Vbool: true},
-			fieldName: "vbool",
+			desc:           "bool",
+			supportedExist: true,
+			want: &pb.Layer1{
+				Supported: &pb.Supported{Vbool: true},
+			},
+			fieldName: "supported.vbool",
 			value:     true,
+		},
+		{
+			desc:      "error: supported is nil",
+			fieldName: "supported.vbool",
+			value:     true,
+			err:       true,
 		},
 	}
 	for _, test := range tests {
-		err := UpdateProtoField(test.start, test.fieldName, test.value)
+		start := proto.Clone(toUpdate).(*pb.Layer1)
+		if test.supportedExist {
+			start.Supported = &pb.Supported{}
+		}
+
+		err := UpdateProtoField(start, test.fieldName, test.value)
 		switch {
 		case err == nil && test.err:
 			t.Errorf("TestUpdateProtoField(%s): got err == nil, want err != nil", test.desc)
@@ -169,7 +217,7 @@ func TestUpdateProtoField(t *testing.T) {
 		case err != nil:
 			continue
 		}
-		if diff := cmp.Diff(test.want, test.start, protocmp.Transform()); diff != "" {
+		if diff := cmp.Diff(test.want, start, protocmp.Transform()); diff != "" {
 			t.Errorf("TestUpdateProtoField(%s): -want/+got:\n%s", test.desc, diff)
 		}
 	}
@@ -266,5 +314,94 @@ func TestGetField(t *testing.T) {
 		if diff := pretty.Compare(fv.Value, test.wantVal); diff != "" {
 			t.Errorf("TestGetField(%s): Val: -want/+got:\n%s", test.desc, diff)
 		}
+	}
+}
+
+func TestEnumLookup(t *testing.T) {
+	msg := &pb.Layer0{}
+
+	evUnknown := Rec{
+		EnumName:   "EnumValues",
+		Int32:      0,
+		ProtoName:  "EV_Unknown",
+		JSONName:   "evUnknown",
+		TitledName: "Unknown",
+	}
+	evOk := Rec{
+		EnumName:   "EnumValues",
+		Int32:      1,
+		ProtoName:  "EV_Ok",
+		JSONName:   "evOk",
+		TitledName: "Ok",
+	}
+	evNotOk := Rec{
+		EnumName:   "EnumValues",
+		Int32:      2,
+		ProtoName:  "EV_Not_Ok",
+		JSONName:   "evNotOk",
+		TitledName: "Not Ok",
+	}
+	evEh := Rec{
+		EnumName:   "EnumValues",
+		Int32:      3,
+		ProtoName:  "EV_Eh",
+		JSONName:   "evEh",
+		TitledName: "Eh",
+	}
+	eeUnknown := Rec{
+		EnumName:   "EnumEmbedded",
+		Int32:      0,
+		ProtoName:  "EE_UNKNOWN",
+		JSONName:   "eeUnknown",
+		TitledName: "Unknown",
+	}
+	eeWhatever := Rec{
+		EnumName:   "EnumEmbedded",
+		Int32:      1,
+		ProtoName:  "EE_WHATEVER",
+		JSONName:   "eeWhatever",
+		TitledName: "Whatever",
+	}
+
+	wantForward := ForwardLookup{ //map[string]Rec
+		evUnknown.ProtoName:   evUnknown,
+		evUnknown.JSONName:    evUnknown,
+		evOk.ProtoName:        evOk,
+		evOk.JSONName:         evOk,
+		evOk.TitledName:       evOk,
+		evNotOk.ProtoName:     evNotOk,
+		evNotOk.JSONName:      evNotOk,
+		evNotOk.TitledName:    evNotOk,
+		evEh.ProtoName:        evEh,
+		evEh.JSONName:         evEh,
+		evEh.TitledName:       evEh,
+		eeUnknown.ProtoName:   eeUnknown,
+		eeUnknown.JSONName:    eeUnknown,
+		eeWhatever.ProtoName:  eeWhatever,
+		eeWhatever.JSONName:   eeWhatever,
+		eeWhatever.TitledName: eeWhatever,
+	}
+
+	wantReverse := ReverseLookup{ // map[string]map[int32]Rec
+		"EnumValues": map[int32]Rec{
+			0: evUnknown,
+			1: evOk,
+			2: evNotOk,
+			3: evEh,
+		},
+		"EnumEmbedded": map[int32]Rec{
+			0: eeUnknown,
+			1: eeWhatever,
+		},
+	}
+
+	forward, reverse := EnumLookup([]proto.Message{msg})
+
+	if diff := pretty.Compare(wantForward, forward); diff != "" {
+		t.Errorf("TestEnumLookup(forward): -want/+got:\n%s", diff)
+	}
+
+	if diff := pretty.Compare(wantReverse, reverse); diff != "" {
+		t.Errorf("TestEnumLookup(reverse): -want/+got:\n%s", diff)
 	}
 }
