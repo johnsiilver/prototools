@@ -40,11 +40,30 @@ func TestReadableJSON(t *testing.T) {
 }
 
 func TestReadbleProto(t *testing.T) {
-	name := "this_is_my_field_name_32"
-	want := "This Is My Field Name 32"
-	got := ReadableProto(name)
-	if got != want {
-		t.Errorf("TestReadableProto(%s): got %q, want %q", name, got, want)
+	tests := []struct {
+		desc    string
+		name    string
+		want    string
+		options []ReadableOption
+	}{
+		{
+			desc: "Base test",
+			name: "this_is_my_field_name_32",
+			want: "This Is My Field Name 32",
+		},
+		{
+			desc:    "RemovePrefix test",
+			name:    "rcategory_Unknown",
+			want:    "Unknown",
+			options: []ReadableOption{RemovePrefix()},
+		},
+	}
+
+	for _, test := range tests {
+		got := ReadableProto(test.name, test.options...)
+		if got != test.want {
+			t.Errorf("TestReadableProto(%s): got %q, want %q", test.name, got, test.want)
+		}
 	}
 }
 

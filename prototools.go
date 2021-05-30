@@ -125,14 +125,37 @@ func ReadableJSON(s string) string {
 	return strings.Join(words, " ")
 }
 
+type readableOpts struct {
+	removePrefix bool
+}
+
+type ReadableOption func(r *readableOpts)
+
+// RemovePrefix will remove the prefix word on the field name. In proto format,
+// this is anything before (and including) the first underscore(_) character.
+func RemovePrefix() ReadableOption {
+	return func(r *readableOpts) {
+		r.removePrefix = true
+	}
+}
+
 // ReadableProto slits the proto field name at "_" and titles each word.
 // This assumes ASCII names and following [lower]_[seperated]_[with]_[underscores] .
-func ReadableProto(s string) string {
+func ReadableProto(s string, options ...ReadableOption) string {
 	if len(s) == 0 {
 		return s
 	}
+	opts := readableOpts{}
+	for _, o := range options {
+		o(&opts)
+	}
 
 	words := strings.Split(s, "_")
+
+	if opts.removePrefix && len(words) > 1 {
+		words = words[1:]
+	}
+
 	for i, word := range words {
 		words[i] = strings.Title(word)
 	}
