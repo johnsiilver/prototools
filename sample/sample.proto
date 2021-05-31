@@ -36,3 +36,23 @@ message Layer1 {
 	Supported supported = 1;
 	string vstring = 2;
 }
+
+message BunchOTypes {
+	EnumValues ev = 1;
+	string vstring = 2;
+	int32 vint32 = 3;
+	int64 vint64 = 4;
+	bool vbool = 5;
+	int64 v_time = 6;
+	float vfloat = 7;
+	double vdouble = 8;
+
+	repeated EnumValues l_ev = 9;
+	repeated string l_string = 10;
+	repeated int32 l_int32 = 11;
+	repeated int64 l_int64 = 12;
+	repeated bool l_bool = 13;
+	repeated float l_float = 14;
+	repeated double l_double = 15;
+	repeated Supported l_message = 16;
+}

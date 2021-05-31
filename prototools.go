@@ -258,9 +258,16 @@ type FieldValue struct {
 	// can be a nil value stored in an interface{}. That means Value != nil, but
 	// the value inside is nil (yeah, I know). Had to do this for certain reasons.
 	// There is a IsNil() method if you want to test if the stored value == nil.
+	// If the value is a list and the type is a base type, then it will be []<type>.
+	// However, it it is a message, this will be []protoreflect.Message, because we have no way
+	// to get to the concrete type. You can use Kind to determine what you need to do.
+	// If it is an Enum, we leave it as a protoreflect.EnumNumber, which is really an int32.
 	Value interface{}
-	// Kind is the proto Kind that was stored.
+	// Kind is the proto Kind that was stored. If IsList == true, Kind represents the underlying
+	// value stored in the list.
 	Kind protoreflect.Kind
+	// IsList is set if the Kind == MessageKind, but the message represents a repeated value.
+	IsList bool
 	// FieldDesc is the field descriptor for this value.
 	FieldDesc protoreflect.FieldDescriptor
 	// EnumDesc is the enumerator descriptor if the Kind was EnumKind.
@@ -364,6 +371,15 @@ func fieldValue(msg proto.Message, field string) (FieldValue, error) {
 		return FieldValue{}, errors.New("bad field name")
 	}
 
+	switch {
+	case fd.IsList():
+		return listFieldValue(ref, fd)
+	case fd.IsMap():
+		return FieldValue{}, errors.New("we do not currently support maps")
+	case fd.IsExtension():
+		return FieldValue{}, errors.New("we do not currently support extensions")
+	}
+
 	switch fd.Kind() {
 	case protoreflect.MessageKind:
 		var v = ref.Get(fd).Message().Interface()
@@ -388,6 +404,92 @@ func fieldValue(msg proto.Message, field string) (FieldValue, error) {
 		Kind:      fd.Kind(),
 		FieldDesc: fd,
 	}, nil
+}
+
+func listFieldValue(ref protoreflect.Message, fd protoreflect.FieldDescriptor) (FieldValue, error) {
+	// These are currently unsupported.
+	/*
+		Int32Kind    Kind = 5
+		Sint32Kind   Kind = 17
+		Uint32Kind   Kind = 13
+		Sint64Kind   Kind = 18
+		Uint64Kind   Kind = 4
+		Sfixed32Kind Kind = 15
+		Fixed32Kind  Kind = 7
+		Sfixed64Kind Kind = 16
+		Fixed64Kind  Kind = 6
+		BytesKind    Kind = 12
+		GroupKind    Kind = 10
+	*/
+
+	fv := FieldValue{
+		Kind:      fd.Kind(),
+		IsList:    true,
+		FieldDesc: fd,
+	}
+	var l = ref.Get(fd).List()
+	switch fd.Kind() {
+	case protoreflect.BoolKind:
+		v := make([]bool, l.Len())
+		for i := 0; i < l.Len(); i++ {
+			entry := l.Get(i)
+			v[i] = entry.Bool()
+		}
+		fv.Value = v
+	case protoreflect.Int32Kind:
+		v := make([]int32, l.Len())
+		for i := 0; i < l.Len(); i++ {
+			entry := l.Get(i)
+			v[i] = int32(entry.Int())
+		}
+		fv.Value = v
+	case protoreflect.Int64Kind:
+		v := make([]int64, l.Len())
+		for i := 0; i < l.Len(); i++ {
+			entry := l.Get(i)
+			v[i] = int64(entry.Int())
+		}
+		fv.Value = v
+	case protoreflect.FloatKind:
+		v := make([]float32, l.Len())
+		for i := 0; i < l.Len(); i++ {
+			entry := l.Get(i)
+			v[i] = float32(entry.Float())
+		}
+		fv.Value = v
+	case protoreflect.DoubleKind:
+		v := make([]float64, l.Len())
+		for i := 0; i < l.Len(); i++ {
+			entry := l.Get(i)
+			v[i] = entry.Float()
+		}
+		fv.Value = v
+	case protoreflect.StringKind:
+		v := make([]string, l.Len())
+		for i := 0; i < l.Len(); i++ {
+			entry := l.Get(i)
+			v[i] = entry.String()
+		}
+		fv.Value = v
+	case protoreflect.EnumKind:
+		v := make([]protoreflect.EnumNumber, l.Len())
+		for i := 0; i < l.Len(); i++ {
+			entry := l.Get(i)
+			v[i] = entry.Enum()
+		}
+		fv.Value = v
+	case protoreflect.MessageKind:
+		v := make([]protoreflect.Message, l.Len())
+		for i := 0; i < l.Len(); i++ {
+			entry := l.Get(i)
+			v[i] = entry.Message()
+		}
+		fv.Value = v
+		fv.MsgDesc = fd.Message()
+	default:
+		return FieldValue{}, fmt.Errorf("we do not support a list value of this type(%s)", fd.Kind())
+	}
+	return fv, nil
 }
 
 type enumDescriptor interface {

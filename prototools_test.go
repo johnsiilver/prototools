@@ -424,3 +424,230 @@ func TestEnumLookup(t *testing.T) {
 		t.Errorf("TestEnumLookup(reverse): -want/+got:\n%s", diff)
 	}
 }
+
+func TestFieldValue(t *testing.T) {
+	myPretty := pretty.Config{
+		IncludeUnexported: false,
+		TrackCycles:       true,
+	}
+
+	const (
+		unknown = 0
+		stdList = 1
+		stdMsg  = 2
+		stdVal  = 3
+		listMsg = 4
+	)
+	tests := []struct {
+		desc        string
+		msg         proto.Message
+		field       string
+		err         bool
+		want        FieldValue
+		compareType int
+	}{
+		{
+			desc:  "Bool",
+			msg:   &pb.Supported{Vbool: true},
+			field: "vbool",
+			want: FieldValue{
+				Value:     true,
+				Kind:      protoreflect.BoolKind,
+				FieldDesc: (&pb.Supported{}).ProtoReflect().Descriptor().Fields().ByName(protoreflect.Name("vbool")),
+			},
+			compareType: stdVal,
+		},
+		{
+			desc:  "Int32",
+			msg:   &pb.Supported{Vint32: 1},
+			field: "vint32",
+			want: FieldValue{
+				Value:     1,
+				Kind:      protoreflect.Int32Kind,
+				FieldDesc: (&pb.Supported{}).ProtoReflect().Descriptor().Fields().ByName(protoreflect.Name("vint32")),
+			},
+			compareType: stdVal,
+		},
+		{
+			desc:  "Int64",
+			msg:   &pb.Supported{Vint64: 1},
+			field: "vint64",
+			want: FieldValue{
+				Value:     1,
+				Kind:      protoreflect.Int64Kind,
+				FieldDesc: (&pb.Supported{}).ProtoReflect().Descriptor().Fields().ByName(protoreflect.Name("vint64")),
+			},
+			compareType: stdVal,
+		},
+		{
+			desc:  "String",
+			msg:   &pb.Supported{Vstring: "hello"},
+			field: "vstring",
+			want: FieldValue{
+				Value:     "hello",
+				Kind:      protoreflect.StringKind,
+				FieldDesc: (&pb.Supported{}).ProtoReflect().Descriptor().Fields().ByName(protoreflect.Name("vstring")),
+			},
+			compareType: stdVal,
+		},
+		{
+			desc:  "Float32",
+			msg:   &pb.Supported{Vfloat: 1.1},
+			field: "vfloat",
+			want: FieldValue{
+				Value:     float32(1.1),
+				Kind:      protoreflect.FloatKind,
+				FieldDesc: (&pb.Supported{}).ProtoReflect().Descriptor().Fields().ByName(protoreflect.Name("vfloat")),
+			},
+			compareType: stdVal,
+		},
+		{
+			desc:  "Float64",
+			msg:   &pb.Supported{Vdouble: 1.1},
+			field: "vdouble",
+			want: FieldValue{
+				Value:     1.1,
+				Kind:      protoreflect.DoubleKind,
+				FieldDesc: (&pb.Supported{}).ProtoReflect().Descriptor().Fields().ByName(protoreflect.Name("vdouble")),
+			},
+			compareType: stdVal,
+		},
+		{
+			desc:  "[]bool",
+			msg:   &pb.BunchOTypes{LBool: []bool{true}},
+			field: "l_bool",
+			want: FieldValue{
+				Value:     []bool{true},
+				Kind:      protoreflect.BoolKind,
+				IsList:    true,
+				FieldDesc: (&pb.BunchOTypes{}).ProtoReflect().Descriptor().Fields().ByName(protoreflect.Name("l_bool")),
+			},
+			compareType: stdList,
+		},
+		{
+			desc:  "[]int32",
+			msg:   &pb.BunchOTypes{LInt32: []int32{1}},
+			field: "l_int32",
+			want: FieldValue{
+				Value:     []int32{1},
+				Kind:      protoreflect.Int32Kind,
+				IsList:    true,
+				FieldDesc: (&pb.BunchOTypes{}).ProtoReflect().Descriptor().Fields().ByName(protoreflect.Name("l_int32")),
+			},
+			compareType: stdList,
+		},
+		{
+			desc:  "[]int64",
+			msg:   &pb.BunchOTypes{LInt64: []int64{1}},
+			field: "l_int64",
+			want: FieldValue{
+				Value:     []int64{1},
+				Kind:      protoreflect.Int64Kind,
+				IsList:    true,
+				FieldDesc: (&pb.BunchOTypes{}).ProtoReflect().Descriptor().Fields().ByName(protoreflect.Name("l_int64")),
+			},
+			compareType: stdList,
+		},
+		{
+			desc:  "[]float32",
+			msg:   &pb.BunchOTypes{LFloat: []float32{1.1}},
+			field: "l_float",
+			want: FieldValue{
+				Value:     []float32{1.1},
+				Kind:      protoreflect.FloatKind,
+				IsList:    true,
+				FieldDesc: (&pb.BunchOTypes{}).ProtoReflect().Descriptor().Fields().ByName(protoreflect.Name("l_float")),
+			},
+			compareType: stdList,
+		},
+		{
+			desc:  "[]float64",
+			msg:   &pb.BunchOTypes{LDouble: []float64{1.1}},
+			field: "l_double",
+			want: FieldValue{
+				Value:     []float64{1.1},
+				Kind:      protoreflect.DoubleKind,
+				IsList:    true,
+				FieldDesc: (&pb.BunchOTypes{}).ProtoReflect().Descriptor().Fields().ByName(protoreflect.Name("l_double")),
+			},
+			compareType: stdList,
+		},
+		{
+			desc:  "[]string",
+			msg:   &pb.BunchOTypes{LString: []string{"hello"}},
+			field: "l_string",
+			want: FieldValue{
+				Value:     []string{"hello"},
+				Kind:      protoreflect.StringKind,
+				IsList:    true,
+				FieldDesc: (&pb.BunchOTypes{}).ProtoReflect().Descriptor().Fields().ByName(protoreflect.Name("l_string")),
+			},
+			compareType: stdList,
+		},
+		{
+			desc:  "[]enum",
+			msg:   &pb.BunchOTypes{LEv: []pb.EnumValues{pb.EnumValues_EV_Ok}},
+			field: "l_ev",
+			want: FieldValue{
+				Value:     []protoreflect.EnumNumber{protoreflect.EnumNumber(1)},
+				Kind:      protoreflect.EnumKind,
+				IsList:    true,
+				FieldDesc: (&pb.BunchOTypes{}).ProtoReflect().Descriptor().Fields().ByName(protoreflect.Name("l_ev")),
+			},
+			compareType: stdList,
+		},
+		{
+			desc:  "[]Message",
+			msg:   &pb.BunchOTypes{LMessage: []*pb.Supported{&pb.Supported{Vstring: "hello"}}},
+			field: "l_message",
+			want: FieldValue{
+				Value: []protoreflect.Message{
+					(&pb.Supported{Vstring: "hello"}).ProtoReflect(),
+				},
+				Kind:      protoreflect.MessageKind,
+				IsList:    true,
+				FieldDesc: (&pb.BunchOTypes{}).ProtoReflect().Descriptor().Fields().ByName(protoreflect.Name("l_message")),
+			},
+			compareType: listMsg,
+		},
+	}
+
+	for _, test := range tests {
+		got, err := fieldValue(test.msg, test.field)
+		switch {
+		case err == nil && test.err:
+			t.Errorf("TestFieldValue(%s): got err == nil, want err != nil", test.desc)
+			continue
+		case err != nil && !test.err:
+			t.Errorf("TestFieldValue(%s): got err == %s, want err == nil", test.desc, err)
+			continue
+		case err != nil:
+			continue
+		}
+
+		switch test.compareType {
+		case stdList, stdVal:
+			if diff := myPretty.Compare(test.want, got); diff != "" {
+				t.Errorf("TestFieldValue(%s): -want/+got:\n%s", test.desc, diff)
+			}
+			continue
+		case listMsg:
+			lWant := test.want.Value.([]protoreflect.Message)
+			lGot := got.Value.([]protoreflect.Message)
+			if len(lWant) != len(lGot) {
+				t.Errorf("TestFieldValue(%s): got %d messages, want %d messages", test.desc, len(lGot), len(lWant))
+				continue
+			}
+			for i := 0; i < len(lWant); i++ {
+				wp := lWant[i].(protoreflect.Message)
+				vp := lGot[i].(protoreflect.Message)
+				if diff := Equal(wp.Interface(), vp.Interface()); diff != "" {
+					t.Errorf("TestFieldValue(%s) item %d: Val: -want/+got:\n%s", test.desc, i, diff)
+				}
+			}
+		default:
+			t.Fatalf("TestFieldValue: broken test parameter: compareType not set")
+		}
+
+	}
+}
