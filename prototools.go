@@ -56,6 +56,10 @@ const (
 	// ErrBadFieldName indicates that one the fields did not exist in the message.
 	// This is not the same as a message having a nil value, which is ErrIntermdiateNotSet.
 	ErrBadFieldName = 3
+	// ErrNotMessage indicates that a value in the path is not a message. Commonly this happens when
+	// trying to retrieve a value from a repeated message or map. You cannot pull this directly, you
+	// must get the repeated messaged and then look through each value.
+	ErrNotMessage = 4
 )
 
 // Error is our internal error types with error codes.
@@ -325,7 +329,11 @@ func GetField(msg proto.Message, fqPath string) (FieldValue, error) {
 		if fv.Value == nil {
 			return FieldValue{}, Errorf(ErrIntermdiateNotSet, "message field(%s) is an empty message", strings.Join(fields[0:x], "."))
 		}
-		msg = fv.Value.(proto.Message)
+		var ok bool
+		msg, ok = fv.Value.(proto.Message)
+		if !ok {
+			return FieldValue{}, Errorf(ErrNotMessage, "message field(%s) is not a proto.Message. Usually this means you are trying to retrieve inside a repeated field or map, which cannot be done", strings.Join(fields[0:x], "."))
+		}
 	}
 
 	fv, err := fieldValue(msg, fields[len(fields)-1])
