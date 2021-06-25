@@ -343,6 +343,60 @@ func GetField(msg proto.Message, fqPath string) (FieldValue, error) {
 	return fv, nil
 }
 
+// GetFields takes a path that must end in a Message type and returns a list of FieldValue(s) for that message. If fqPath is "", will return
+// fields of msg.
+func GetFields(msg proto.Message, fqPath string) ([]FieldValue, error) {
+	var fv FieldValue
+	var fields []string
+	if fqPath == "" {
+		var err error
+		fv, err = fieldValue(msg, "")
+		if err != nil {
+			return nil, Errorf(ErrUnknown, "unknown error on root message: %s", err)
+		}
+	} else {
+		fields = FQPathSplit(fqPath)
+		for x, field := range fields[0 : len(fields)-1] {
+			fv, err := fieldValue(msg, field)
+			if err != nil {
+				return nil, Errorf(ErrBadFieldName, "field(%s) could not be found", strings.Join(fields[0:x], "."))
+			}
+			if fv.Kind != protoreflect.MessageKind {
+				return nil, Errorf(ErrIntermediateNotMessage, "field(%s) should be a message, was a %s", strings.Join(fields[0:x], "."), fv.Kind)
+			}
+			if fv.Value == nil {
+				return nil, Errorf(ErrIntermdiateNotSet, "message field(%s) is an empty message", strings.Join(fields[0:x], "."))
+			}
+			var ok bool
+			msg, ok = fv.Value.(proto.Message)
+			if !ok {
+				return nil, Errorf(ErrNotMessage, "message field(%s) is not a proto.Message. Usually this means you are trying to retrieve inside a repeated field or map, which cannot be done", strings.Join(fields[0:x], "."))
+			}
+		}
+		var err error
+		fv, err = fieldValue(msg, fields[len(fields)-1])
+		if err != nil {
+			return nil, Errorf(ErrBadFieldName, "field(%s) could not be found", fqPath)
+		}
+		if fv.Kind != protoreflect.MessageKind {
+			return nil, Errorf(ErrIntermediateNotMessage, "field(%s) should be a message, was a %s", strings.Join(fields, "."), fv.Kind)
+		}
+	}
+
+	fvs := []FieldValue{}
+
+	descs := fv.MsgDesc.Fields()
+	for i := 0; i < descs.Len(); i++ {
+		desc := descs.Get(i)
+		fv, err := fieldValue(fv.Value.(proto.Message), string(desc.Name()))
+		if err != nil {
+			return nil, Errorf(ErrUnknown, "field(%s) had an unknown error: %s", strings.Join(append(fields, string(desc.Name())), "."), err)
+		}
+		fvs = append(fvs, fv)
+	}
+	return fvs, nil
+}
+
 // getLastMessage will takes the path and returns the len(fqPath) -1 proto.Message. If createmessage is set, this will create the
 // message values if they are not set through the entire path except the inital message passed as "msg".
 func getLastMessage(msg proto.Message, fqPath []string, createMessages bool) (protoreflect.Message, error) {
@@ -372,6 +426,14 @@ func getLastMessage(msg proto.Message, fqPath []string, createMessages bool) (pr
 
 // fieldValue gets a field from msg.
 func fieldValue(msg proto.Message, field string) (FieldValue, error) {
+	if field == "" {
+		return FieldValue{
+			Value:   msg,
+			Kind:    protoreflect.MessageKind,
+			MsgDesc: msg.ProtoReflect().Descriptor(),
+		}, nil
+	}
+
 	ref := msg.ProtoReflect()
 	descriptors := ref.Descriptor().Fields()
 	fd := descriptors.ByName(protoreflect.Name(field))

@@ -1,6 +1,7 @@
 package prototools
 
 import (
+	"sort"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -238,6 +239,75 @@ func TestUpdateProtoField(t *testing.T) {
 		}
 		if diff := cmp.Diff(test.want, start, protocmp.Transform()); diff != "" {
 			t.Errorf("TestUpdateProtoField(%s): -want/+got:\n%s", test.desc, diff)
+		}
+	}
+}
+
+func TestGetFields(t *testing.T) {
+	msg := &pb.Layer0{
+		Vint32: 3,
+		Layer1: &pb.Layer1{
+			Vstring: "hello",
+			Supported: &pb.Supported{
+				Ev:    pb.EnumValues_EV_Ok,
+				Vbool: true,
+			},
+		},
+	}
+
+	tests := []struct {
+		desc   string
+		fqPath string
+		want   []string
+		err    bool
+	}{
+		{
+			desc:   "Non-existent field in first message",
+			fqPath: "what",
+			err:    true,
+		},
+
+		{
+			desc:   "Top message",
+			fqPath: "",
+			want:   []string{"layer1", "vint32", "ee"},
+		},
+		{
+			desc:   "Sub message",
+			fqPath: "layer1",
+			want:   []string{"vstring", "supported"},
+		},
+		{
+			desc:   "Sub sub message",
+			fqPath: "layer1.supported",
+			want:   []string{"ev", "vstring", "vint32", "vint64", "vbool", "v_time", "vfloat", "vdouble"},
+		},
+	}
+
+	conf := pretty.Config{IncludeUnexported: false, TrackCycles: true}
+	for _, test := range tests {
+		fvs, err := GetFields(msg, test.fqPath)
+		switch {
+		case err == nil && test.err:
+			t.Errorf("TestGetFields(%s): got err == nil, want err != nil", test.desc)
+			continue
+		case err != nil && !test.err:
+			t.Errorf("TestGetFields(%s): got err == %s, want err == nil", test.desc, err)
+			continue
+		case err != nil:
+			continue
+		}
+
+		got := []string{}
+		for _, fv := range fvs {
+			got = append(got, string(fv.FieldDesc.Name()))
+		}
+
+		sort.Strings(got)
+		sort.Strings(test.want)
+
+		if diff := conf.Compare(test.want, got); diff != "" {
+			t.Errorf("TestGetFields(%s)(%s): -want/+got:\n%s", test.desc, test.fqPath, diff)
 		}
 	}
 }
